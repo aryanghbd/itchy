@@ -491,8 +491,11 @@ class OrderBook {
     private:
         unordered_map<uint64_t, Order> m_orders;
     public:
+        int size() const {
+            return m_orders.size();
+        }
         void addOrder(const Order& order) {
-            m_orders[order.orderReferenceNumber()] = order;
+            m_orders.insert_or_assign(order.orderReferenceNumber(), order);
         }
 
         void removeOrder(uint64_t orderReferenceNumber) {
@@ -713,28 +716,37 @@ int main() {
 
     Message message;
     ParsedMessage parsedMessage;
-    unordered_map<uint64_t, Order> orderBook; // key is order reference number, value is the order itself
-    // read until EOF, dispatch, count messages by type, verify every parser consumes exactly its size, with no unknown types
-
+    OrderBook orderBook;
 
     while(reader.readMessage(message)) {
         try {
             parsedMessage = parseMessage(message);
-            // if the message order was E,C,X,D,U,F, we should update the order book accordingly
+            
+            // list of message types we want to handle [AddOrder, AddOrderWithMPID, OrderExecuted, OrderExecutedWithPrice, OrderCancel, OrderDelete, OrderReplace]
+
+            std::visit([&orderBook](auto&& msg) {
+                using T = std::decay_t<decltype(msg)>;
+                if constexpr (std::is_same_v<T, AddOrder>) {
+                    orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, AddOrderWithMPID>) {
+                    orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, OrderExecuted>) {
+                    orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, OrderExecutedWithPrice>) {
+                    orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, OrderCancel>) {
+                    orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, OrderDelete>) {
+                    orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, OrderReplace>) {
+                    orderBook.apply(msg);
+                }
+            }, parsedMessage);
             
         } catch (const std::exception& e) {
             cerr << "Error parsing message: " << e.what() << endl;
         }
     }
-    // while (reader.readMessage(message)) {
-    //     try {
-    //         parsedMessage = parseMessage(message);
-    //         // print the message type (char) and size
-    //         cout << "Message Type: " << static_cast<char>(message.data()[0]) << ", Size: " << message.size() << endl;
-    //         reader.printMessage(message);
-    //     } catch (const std::exception& e) {
-    //         cerr << "Error parsing message: " << e.what() << endl;
-    //     }
-    // }
 
+    cout << "The order book has " << orderBook.size() << " orders after processing the ITCH feed." << endl;
 }

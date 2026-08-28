@@ -29,6 +29,10 @@ class Message {
             return m_buffer.data();
         }
 
+        // get data (mutable since it returns the pointer.)
+        uint8_t* data() {
+            return m_buffer.data();
+        }
 };
 
 class MessageReader {
@@ -54,29 +58,33 @@ class MessageReader {
 
             // read first 2 bytes to get the size of the message
 
+            // funky caveat: ITCH messages are big endian
+            // so the first two bytes being 00 27 for example would be read as 0x2700 = 9984
+            // no bueno, we wanna read this as 0x0027, so gotta do some funky shit to swap the bytes around
 
-            gzread(m_file, &size, sizeof(size));
+        
+            uint8_t sizeBytes[2];
+            gzread(m_file, sizeBytes, 2);
+            // just right shift the first byte by 8 bits then OR with the second byte.
+            size = (sizeBytes[0] << 8) | sizeBytes[1];
+
+            // now we can read the rest of the message exactly.
+            Message message(size);
+            gzread(m_file, message.data(), size);
+            return message;
+        }
+
+        void printMessage(const Message& message) {
+            // print the message in hex format
+            for (size_t i = 0; i < message.size(); ++i) {
+                printf("%02X ", message.data()[i]);
+            }
+            printf("\n");
         }
 };
 
 int main() {
-    gzFile file = gzopen("data/12302019.NASDAQ_ITCH50.gz", "rb");
-    // now read the contents of the file using gzread
-    array<unsigned char, 1000 * 1024> buffer{};
-    int bytesRead = gzread(file, buffer.data(), buffer.size()); // Read into the buffer
-    if (!file) {
-        cerr << "Failed to open gzip file\n";
-        return 1;
-    }
-    gzclose(file);
-    cout << "Successfully read " << bytesRead << " bytes\n";
-
-    // try to read the first 32 bytes
-
-    for (int i = 0; i < (64 * 1024) && i < bytesRead; ++i) {
-        cout << hex << static_cast<int>(buffer[i]) << " ";
-    }
-    cout << endl;
-    // no need to free the buffer memory, std::array manages it automatically
-    return 0;
+    MessageReader reader("data/12302019.NASDAQ_ITCH50.gz");
+    Message message = reader.readMessage();
+    reader.printMessage(message);
 }

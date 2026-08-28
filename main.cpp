@@ -663,21 +663,120 @@ ParsedMessage parseMessage(const Message& message) {
             return result;
         }
         case StockTradingAction::type:
-            return *reinterpret_cast<const StockTradingAction*>(message.data());
+            StockTradingAction result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            reader.readChars(result.stock, 8);
+            result.tradingState = static_cast<char>(reader.readUInt8());
+            result.reserved = static_cast<char>(reader.readUInt8());
+            reader.readChars(result.reason, 4);
+            return result;
+
         case NetOrderImbalanceIndicator::type:
-            return *reinterpret_cast<const NetOrderImbalanceIndicator*>(message.data());
+            NetOrderImbalanceIndicator result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            result.pairedShares = reader.readUInt64BE();
+            result.imbalanceShares = reader.readUInt64BE();
+            result.direction = static_cast<char>(reader.readUInt8());
+            reader.readChars(result.stock, 8);
+            result.farPrice = reader.readUInt32BE();
+            result.nearPrice = reader.readUInt32BE();
+            result.crossType = static_cast<char>(reader.readUInt8());
+            result.priceVariation = static_cast<char>(reader.readUInt8());
+            return result;
+
         case LULDAuctionCollar::type:
-            return *reinterpret_cast<const LULDAuctionCollar*>(message.data());
+            LULDAuctionCollar result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            reader.readChars(result.stock, 8);
+            result.collarReferencePrice = reader.readUInt32BE();
+            result.upperAuctionCollarPrice = reader.readUInt32BE();
+            result.lowerAuctionCollarPrice = reader.readUInt32BE();
+            result.auctionExtensions = reader.readUInt32BE();
+            return result;
+
         case IPOQuotingPeriodUpdate::type:
-            return *reinterpret_cast<const IPOQuotingPeriodUpdate*>(message.data());
+            IPOQuotingPeriodUpdate result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            reader.readChars(result.stock, 8);
+            result.quotationReleaseTime = reader.readUInt32BE();
+            result.releaseQualifier = static_cast<char>(reader.readUInt8());
+            result.ipoPrice = reader.readUInt32BE();
+            return result;
+
         case MarketParticipantPosition::type:
-            return *reinterpret_cast<const MarketParticipantPosition*>(message.data());
+            MarketParticipantPosition result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            reader.readChars(result.mpid, 4);
+            reader.readChars(result.stock, 8);
+            result.primaryMarketMaker = static_cast<char>(reader.readUInt8());
+            result.marketMakerMode = static_cast<char>(reader.readUInt8());
+            result.marketParticipantState = static_cast<char>(reader.readUInt8());
+            return result;
+
         case TradeMessageNonCross::type:
-            return *reinterpret_cast<const TradeMessageNonCross*>(message.data());
+            TradeMessageNonCross result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            result.orderReferenceNumber = reader.readUInt64BE();
+            result.buySellIndicator = static_cast<char>(reader.readUInt8());
+            result.shares = reader.readUInt32BE();
+            reader.readChars(result.stock, 8);
+            result.price = reader.readUInt32BE();
+            result.matchNumber = reader.readUInt64BE();
+            return result;
+
         case CrossTrade::type:
-            return *reinterpret_cast<const CrossTrade*>(message.data());
+            CrossTrade result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            result.shares = reader.readUInt64BE();
+            reader.readChars(result.stock, 8);
+            result.crossPrice = reader.readUInt32BE();
+            result.matchNumber = reader.readUInt64BE();
+            result.crossType = static_cast<char>(reader.readUInt8());
+            return result;
+
         case StockDirectory::type:
-            return *reinterpret_cast<const StockDirectory*>(message.data());
+            StockDirectory result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            reader.readChars(result.stock, 8);
+            result.marketCategory = static_cast<char>(reader.readUInt8());
+            result.financialStatusIndicator = static_cast<char>(reader.readUInt8());
+            result.roundLotSize = reader.readUInt32BE();
+            result.roundLotsOnly = static_cast<char>(reader.readUInt8());
+            result.issueClarification = static_cast<char>(reader.readUInt8());
+            reader.readChars(result.issueSubtype, 2);
+            result.authenticity = static_cast<char>(reader.readUInt8());
+            result.shortSaleThreshold = static_cast<char>(reader.readUInt8());
+            result.ipoFlag = static_cast<char>(reader.readUInt8());
+            result.luldTier = static_cast<char>(reader.readUInt8());
+            result.etpFlag = static_cast<char>(reader.readUInt8());
+            result.etpLeverageFactor = reader.readUInt32BE();
+            result.inverseIndicator = static_cast<char>(reader.readUInt8());
+            return result;
+
         case OrderReplace::type: {
             OrderReplace result{};
             result.header.messageType = messageType;
@@ -692,20 +791,37 @@ ParsedMessage parseMessage(const Message& message) {
             return result;
         }
         case MarketWideCircuitBreakerDeclineLevels::type:
-            return *reinterpret_cast<const MarketWideCircuitBreakerDeclineLevels*>(message.data());
+            MarketWideCircuitBreakerDeclineLevels result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            result.level1 = reader.readUInt64BE();
+            result.level2 = reader.readUInt64BE();
+            result.level3 = reader.readUInt64BE();
+            return result;
+
         case OrderCancel::type: {
             OrderCancel result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
             result.header.trackingNumber = reader.readUInt16BE();
             result.header.timestamp = reader.readUInt48BE();
-
             result.orderReferenceNumber = reader.readUInt64BE();
             result.canceledShares = reader.readUInt32BE();
             return result;
         }
+        
         case RegSHOShortSalePriceTest::type:
-            return *reinterpret_cast<const RegSHOShortSalePriceTest*>(message.data());
+            RegSHOShortSalePriceTest result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            reader.readChars(result.stock, 8);
+            result.regSHOAction = static_cast<char>(reader.readUInt8());
+            return result;
+
         default:
             throw runtime_error("Unknown message type");
     }
@@ -727,18 +843,25 @@ int main() {
             std::visit([&orderBook](auto&& msg) {
                 using T = std::decay_t<decltype(msg)>;
                 if constexpr (std::is_same_v<T, AddOrder>) {
+                    cout << "AddOrder message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, AddOrderWithMPID>) {
+                    cout << "AddOrderWithMPID message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderExecuted>) {
+                    cout << "OrderExecuted message: OrderRef=" << msg.orderReferenceNumber << ", ExecutedShares=" << msg.executedShares << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderExecutedWithPrice>) {
+                    cout << "OrderExecutedWithPrice message: OrderRef=" << msg.orderReferenceNumber << ", ExecutedShares=" << msg.executedShares << ", Price=" << msg.price << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderCancel>) {
+                    cout << "OrderCancel message: OrderRef=" << msg.orderReferenceNumber << ", CanceledShares=" << msg.canceledShares << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderDelete>) {
+                    cout << "OrderDelete message: OrderRef=" << msg.orderReferenceNumber << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderReplace>) {
+                    cout << "OrderReplace message: OriginalOrderRef=" << msg.originalOrderReferenceNumber << ", NewOrderRef=" << msg.newOrderReferenceNumber << ", NewShares=" << msg.newShares << ", NewPrice=" << msg.newPrice << endl;
                     orderBook.apply(msg);
                 }
             }, parsedMessage);

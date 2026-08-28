@@ -811,7 +811,7 @@ ParsedMessage parseMessage(const Message& message) {
             result.canceledShares = reader.readUInt32BE();
             return result;
         }
-        
+
         case RegSHOShortSalePriceTest::type:
             RegSHOShortSalePriceTest result{};
             result.header.messageType = messageType;
@@ -833,11 +833,14 @@ int main() {
     Message message;
     ParsedMessage parsedMessage;
     OrderBook orderBook;
+    int messageCount = 0;
+    int unknownMessageCount = 0;
+    int malformedMessageCount = 0;
 
     while(reader.readMessage(message)) {
         try {
             parsedMessage = parseMessage(message);
-            
+            messageCount++;
             // list of message types we want to handle [AddOrder, AddOrderWithMPID, OrderExecuted, OrderExecutedWithPrice, OrderCancel, OrderDelete, OrderReplace]
 
             std::visit([&orderBook](auto&& msg) {
@@ -863,13 +866,19 @@ int main() {
                 } else if constexpr (std::is_same_v<T, OrderReplace>) {
                     cout << "OrderReplace message: OriginalOrderRef=" << msg.originalOrderReferenceNumber << ", NewOrderRef=" << msg.newOrderReferenceNumber << ", NewShares=" << msg.newShares << ", NewPrice=" << msg.newPrice << endl;
                     orderBook.apply(msg);
+                } else {
+                    unknownMessageCount++;
                 }
             }, parsedMessage);
             
         } catch (const std::exception& e) {
             cerr << "Error parsing message: " << e.what() << endl;
+            malformedMessageCount++;
         }
     }
 
     cout << "The order book has " << orderBook.size() << " orders after processing the ITCH feed." << endl;
+    cout << "Processed " << messageCount << " messages." << endl;
+    cout << "Encountered " << unknownMessageCount << " unknown messages." << endl;
+    cout << "Encountered " << malformedMessageCount << " malformed messages." << endl;
 }

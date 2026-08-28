@@ -563,7 +563,26 @@ class OrderBook {
             // remove the order from the book
             removeOrder(message.orderReferenceNumber);
         }
-        void apply(const OrderReplace& message) {}
+        void apply(const OrderReplace& message) {
+
+            Order* originalOrder = getOrder(message.originalOrderReferenceNumber);
+            if (!originalOrder) {
+                throw runtime_error("Original order not found for replacement");
+            }
+
+            // get stock locate and buy/sell indicator from the original order
+            uint16_t stockLocate = originalOrder->stockLocate();
+            char buySellIndicator = originalOrder->buySellIndicator();
+            removeOrder(message.originalOrderReferenceNumber);
+            Order newOrder(
+                message.newOrderReferenceNumber,
+                stockLocate,
+                buySellIndicator,
+                message.newPrice,
+                message.newShares
+            );
+            addOrder(newOrder);
+        }
 };
 using ParsedMessage = std::variant<SystemEvent, AddOrder, OrderExecutedWithPrice, OrderDelete, OrderExecuted, AddOrderWithMPID, StockTradingAction, NetOrderImbalanceIndicator, LULDAuctionCollar, IPOQuotingPeriodUpdate, MarketParticipantPosition, TradeMessageNonCross, CrossTrade, StockDirectory, OrderReplace, MarketWideCircuitBreakerDeclineLevels, OrderCancel, RegSHOShortSalePriceTest>;
 

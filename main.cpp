@@ -6,7 +6,80 @@ using namespace std;
 #include <set>
 #include <map>
 #include <stdexcept>
+#include <variant>
 
+// methods to read to big endian
+
+#include <span>
+
+class ByteReader {
+private:
+    std::span<const uint8_t> m_bytes;
+    size_t m_position = 0;
+
+    void require(size_t count) const {
+        if (count > m_bytes.size() - m_position) {
+            throw runtime_error("Unexpected end of message");
+        }
+    }
+
+public:
+    explicit ByteReader(std::span<const uint8_t> bytes)
+        : m_bytes(bytes) {}
+
+    uint8_t readUInt8() {
+        require(1);
+        return m_bytes[m_position++];
+    }
+
+    uint16_t readUInt16BE() {
+        require(2);
+        uint16_t value =
+            (static_cast<uint16_t>(m_bytes[m_position]) << 8) |
+            static_cast<uint16_t>(m_bytes[m_position + 1]);
+        m_position += 2;
+        return value;
+    }
+
+    uint32_t readUInt32BE() {
+        require(4);
+        uint32_t value =
+            (static_cast<uint32_t>(m_bytes[m_position]) << 24) |
+            (static_cast<uint32_t>(m_bytes[m_position + 1]) << 16) |
+            (static_cast<uint32_t>(m_bytes[m_position + 2]) << 8) |
+            static_cast<uint32_t>(m_bytes[m_position + 3]);
+        m_position += 4;
+        return value;
+    }
+
+    uint64_t readUInt48BE() {
+        require(6);
+        uint64_t value = 0;
+        for (size_t i = 0; i < 6; ++i) {
+            value = (value << 8) | m_bytes[m_position + i];
+        }
+        m_position += 6;
+        return value;
+    }
+
+    uint64_t readUInt64BE() {
+        require(8);
+        uint64_t value = 0;
+        for (size_t i = 0; i < 8; ++i) {
+            value = (value << 8) | m_bytes[m_position + i];
+        }
+        m_position += 8;
+        return value;
+    }
+
+    void readChars(char* destination, size_t count) {
+        require(count);
+        for (size_t i = 0; i < count; ++i) {
+            destination[i] = static_cast<char>(m_bytes[m_position + i]);
+        }
+        m_position += count;
+    }
+};
 struct MessageHeader {
     // most itch message types share the first 11 payload bytes.
     uint8_t messageType; 
@@ -374,24 +447,131 @@ class MessageReader {
         }
 };
 
+class Order {
+    // instruction to buy or sell a stock, some given price or quantity.
+private:
+    uint64_t m_orderReferenceNumber;
+    uint16_t m_stockLocate;
+    char m_buySellIndicator;
+    uint32_t m_price; // big endian with 4 implied decimal places
+    uint32_t m_shares; 
+
+public:
+    Order(
+        uint64_t orderReferenceNumber,
+        uint16_t stockLocate,
+        char buySellIndicator,
+        uint32_t price,
+        uint32_t shares
+
+    ) : m_orderReferenceNumber(orderReferenceNumber),
+        m_stockLocate(stockLocate),
+        m_buySellIndicator(buySellIndicator),
+        m_price(price),
+        m_shares(shares) {}
+        
+    // getters
+    uint64_t orderReferenceNumber() const { return m_orderReferenceNumber; }
+    uint16_t stockLocate() const { return m_stockLocate; }
+    char buySellIndicator() const { return m_buySellIndicator; }
+    uint32_t price() const { return m_price; }
+    uint32_t shares() const { return m_shares; }
+};
+
+using ParsedMessage = std::variant<SystemEvent, AddOrder, OrderExecutedWithPrice, OrderDelete, OrderExecuted, AddOrderWithMPID, StockTradingAction, NetOrderImbalanceIndicator, LULDAuctionCollar, IPOQuotingPeriodUpdate, MarketParticipantPosition, TradeMessageNonCross, CrossTrade, StockDirectory, OrderReplace, MarketWideCircuitBreakerDeclineLevels, OrderCancel, RegSHOShortSalePriceTest>;
+
+ParsedMessage parseMessage(const Message& message) {
+    ByteReader reader(std::span<const uint8_t>(message.data(), message.size()));
+    uint8_t messageType = reader.readUInt8();
+
+    switch (messageType) {
+        case SystemEvent::type:
+            return *reinterpret_cast<const SystemEvent*>(message.data());
+        case AddOrder::type:
+            return *reinterpret_cast<const AddOrder*>(message.data());
+        case OrderExecutedWithPrice::type:
+            return *reinterpret_cast<const OrderExecutedWithPrice*>(message.data());
+        case OrderDelete::type:
+            return *reinterpret_cast<const OrderDelete*>(message.data());
+        case OrderExecuted::type:
+            return *reinterpret_cast<const OrderExecuted*>(message.data());
+        case AddOrderWithMPID::type:
+            return *reinterpret_cast<const AddOrderWithMPID*>(message.data());
+        case StockTradingAction::type:
+            return *reinterpret_cast<const StockTradingAction*>(message.data());
+        case NetOrderImbalanceIndicator::type:
+            return *reinterpret_cast<const NetOrderImbalanceIndicator*>(message.data());
+        case LULDAuctionCollar::type:
+            return *reinterpret_cast<const LULDAuctionCollar*>(message.data());
+        case IPOQuotingPeriodUpdate::type:
+            return *reinterpret_cast<const IPOQuotingPeriodUpdate*>(message.data());
+        case MarketParticipantPosition::type:
+            return *reinterpret_cast<const MarketParticipantPosition*>(message.data());
+        case TradeMessageNonCross::type:
+            return *reinterpret_cast<const TradeMessageNonCross*>(message.data());
+        case CrossTrade::type:
+            return *reinterpret_cast<const CrossTrade*>(message.data());
+        case StockDirectory::type:
+            return *reinterpret_cast<const StockDirectory*>(message.data());
+        case OrderReplace::type:
+            return *reinterpret_cast<const OrderReplace*>(message.data());
+        case MarketWideCircuitBreakerDeclineLevels::type:
+            return *reinterpret_cast<const MarketWideCircuitBreakerDeclineLevels*>(message.data());
+        case OrderCancel::type:
+            return *reinterpret_cast<const OrderCancel*>(message.data());
+        case RegSHOShortSalePriceTest::type:
+            return *reinterpret_cast<const RegSHOShortSalePriceTest*>(message.data());
+        default:
+            throw runtime_error("Unknown message type");
+    }
+}
 int main() {
     MessageReader reader("data/12302019.NASDAQ_ITCH50.gz");
     // better idea, we should iteratively read messages and grab all their headers to see how many different types there are
 
-    map<uint8_t, Message> messagesByType;
-    // so i can get a sense of what each unique message type looks like.
-    constexpr size_t expectedMessageTypes = 22;
     Message message;
-    while (messagesByType.size() < expectedMessageTypes && reader.readMessage(message)) {
-        uint8_t messageType = message.data()[0];
-        messagesByType.try_emplace(messageType, message);
+    ParsedMessage parsedMessage;
+    unordered_map<uint64_t, Order> orderBook; // key is order reference number, value is the order itself
+    // read until EOF, dispatch, count messages by type, verify every parser consumes exactly its size, with no unknown types
+
+
+    while(reader.readMessage(message)) {
+        try {
+            parsedMessage = parseMessage(message);
+            // print the message type is A, instnatiate an order, print details and break
+            if(get_if<AddOrder>(&parsedMessage)) {
+                const AddOrder& addOrder = get<AddOrder>(parsedMessage);
+                // create an order from the add order message
+                Order order(
+                    addOrder.orderReferenceNumber,
+                    addOrder.header.stockLocate,
+                    addOrder.buySellIndicator,
+                    addOrder.price,
+                    addOrder.shares
+                );  
+                // order details
+
+                cout << "Order Reference Number: " << order.orderReferenceNumber() << endl;
+                cout << "Stock Locate: " << order.stockLocate() << endl;
+                cout << "Buy/Sell Indicator: " << order.buySellIndicator() << endl;
+
+                cout << "Price: " << order.price() << endl;
+                cout << "Shares: " << order.shares() << endl;
+                break;
+            }
+        } catch (const std::exception& e) {
+            cerr << "Error parsing message: " << e.what() << endl;
+        }
     }
-    // go through each type and the message
-    for (const auto& pair : messagesByType) {
-        uint8_t messageType = pair.first;
-        const Message& message = pair.second;
-        cout << "Message Type: " << static_cast<int>(messageType) << ", Size: " << message.size() << endl;
-        reader.printMessage(message);
-    }
+    // while (reader.readMessage(message)) {
+    //     try {
+    //         parsedMessage = parseMessage(message);
+    //         // print the message type (char) and size
+    //         cout << "Message Type: " << static_cast<char>(message.data()[0]) << ", Size: " << message.size() << endl;
+    //         reader.printMessage(message);
+    //     } catch (const std::exception& e) {
+    //         cerr << "Error parsing message: " << e.what() << endl;
+    //     }
+    // }
 
 }

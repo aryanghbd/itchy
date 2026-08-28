@@ -476,8 +476,95 @@ public:
     char buySellIndicator() const { return m_buySellIndicator; }
     uint32_t price() const { return m_price; }
     uint32_t shares() const { return m_shares; }
+
+    // setters
+    void reduceShares(uint32_t amount) {
+        if (amount > m_shares) {
+            throw runtime_error("Cannot reduce shares below zero");
+        }
+        m_shares -= amount;
+    }
 };
 
+class OrderBook {
+    // collection of orders, keyed by order reference number
+    private:
+        unordered_map<uint64_t, Order> m_orders;
+    public:
+        void addOrder(const Order& order) {
+            m_orders[order.orderReferenceNumber()] = order;
+        }
+
+        void removeOrder(uint64_t orderReferenceNumber) {
+            m_orders.erase(orderReferenceNumber);
+        }
+
+        Order* getOrder(uint64_t orderReferenceNumber) {
+            auto it = m_orders.find(orderReferenceNumber);
+            if (it != m_orders.end()) {
+                return &it->second;
+            }
+            return nullptr;
+        }
+
+        void apply(const AddOrder& message) {
+            Order order(
+                message.orderReferenceNumber,
+                message.header.stockLocate,
+                message.buySellIndicator,
+                message.price,
+                message.shares
+            );
+            addOrder(order);
+        }
+        void apply(const AddOrderWithMPID& message) {
+            Order order(
+                message.orderReferenceNumber,
+                message.header.stockLocate,
+                message.buySellIndicator,
+                message.price,
+                message.shares
+            );
+            addOrder(order);
+        }
+        void apply(const OrderExecuted& message) {
+            // reduce the shares of the order by the executed shares
+            Order* order = getOrder(message.orderReferenceNumber);
+            if (order) {
+                // reduce shares 
+                order->reduceShares(message.executedShares);
+            }
+            else {
+                throw runtime_error("Order not found for execution");
+            }
+        }
+        void apply(const OrderExecutedWithPrice& message) {
+            // reduce the shares of the order by the executed shares
+            Order* order = getOrder(message.orderReferenceNumber);
+            if (order) {
+                // reduce shares 
+                order->reduceShares(message.executedShares);
+            }
+            else {
+                throw runtime_error("Order not found for execution");
+            }
+        }
+        void apply(const OrderCancel& message) {
+            // reduce remaining shares but don't delete the order, since it may be partially filled and still exist in the book
+            Order* order = getOrder(message.orderReferenceNumber);
+            if (order) {
+                order->reduceShares(message.canceledShares);
+            }
+            else {
+                throw runtime_error("Order not found for cancellation");
+            }
+        }
+        void apply(const OrderDelete& message) {
+            // remove the order from the book
+            removeOrder(message.orderReferenceNumber);
+        }
+        void apply(const OrderReplace& message) {}
+};
 using ParsedMessage = std::variant<SystemEvent, AddOrder, OrderExecutedWithPrice, OrderDelete, OrderExecuted, AddOrderWithMPID, StockTradingAction, NetOrderImbalanceIndicator, LULDAuctionCollar, IPOQuotingPeriodUpdate, MarketParticipantPosition, TradeMessageNonCross, CrossTrade, StockDirectory, OrderReplace, MarketWideCircuitBreakerDeclineLevels, OrderCancel, RegSHOShortSalePriceTest>;
 
 ParsedMessage parseMessage(const Message& message) {
@@ -487,16 +574,72 @@ ParsedMessage parseMessage(const Message& message) {
     switch (messageType) {
         case SystemEvent::type:
             return *reinterpret_cast<const SystemEvent*>(message.data());
-        case AddOrder::type:
-            return *reinterpret_cast<const AddOrder*>(message.data());
-        case OrderExecutedWithPrice::type:
-            return *reinterpret_cast<const OrderExecutedWithPrice*>(message.data());
-        case OrderDelete::type:
-            return *reinterpret_cast<const OrderDelete*>(message.data());
-        case OrderExecuted::type:
-            return *reinterpret_cast<const OrderExecuted*>(message.data());
-        case AddOrderWithMPID::type:
-            return *reinterpret_cast<const AddOrderWithMPID*>(message.data());
+        case AddOrder::type: {
+            AddOrder result{};
+
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.orderReferenceNumber = reader.readUInt64BE();
+            result.buySellIndicator = static_cast<char>(reader.readUInt8());
+            result.shares = reader.readUInt32BE();
+            reader.readChars(result.stock, 8);
+            result.price = reader.readUInt32BE();
+            return result;
+        }
+        case OrderExecutedWithPrice::type: {
+            OrderExecutedWithPrice result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.orderReferenceNumber = reader.readUInt64BE();
+            result.executedShares = reader.readUInt32BE();
+            result.matchNumber = reader.readUInt64BE();
+            result.printable = static_cast<char>(reader.readUInt8());
+            result.price = reader.readUInt32BE();
+            return result;
+        }
+        case OrderDelete::type: {
+            OrderDelete result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.orderReferenceNumber = reader.readUInt64BE();
+            return result;
+        }
+        case OrderExecuted::type: {
+            OrderExecuted result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.orderReferenceNumber = reader.readUInt64BE();
+            result.executedShares = reader.readUInt32BE();
+            result.matchNumber = reader.readUInt64BE();
+            return result;
+        }
+        case AddOrderWithMPID::type: {
+            AddOrderWithMPID result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.orderReferenceNumber = reader.readUInt64BE();
+            result.buySellIndicator = static_cast<char>(reader.readUInt8());
+            result.shares = reader.readUInt32BE();
+            reader.readChars(result.stock, 8);
+            result.price = reader.readUInt32BE();
+            reader.readChars(result.mpid, 4);
+            return result;
+        }
         case StockTradingAction::type:
             return *reinterpret_cast<const StockTradingAction*>(message.data());
         case NetOrderImbalanceIndicator::type:
@@ -513,12 +656,32 @@ ParsedMessage parseMessage(const Message& message) {
             return *reinterpret_cast<const CrossTrade*>(message.data());
         case StockDirectory::type:
             return *reinterpret_cast<const StockDirectory*>(message.data());
-        case OrderReplace::type:
-            return *reinterpret_cast<const OrderReplace*>(message.data());
+        case OrderReplace::type: {
+            OrderReplace result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.originalOrderReferenceNumber = reader.readUInt64BE();
+            result.newOrderReferenceNumber = reader.readUInt64BE();
+            result.newShares = reader.readUInt32BE();
+            result.newPrice = reader.readUInt32BE();
+            return result;
+        }
         case MarketWideCircuitBreakerDeclineLevels::type:
             return *reinterpret_cast<const MarketWideCircuitBreakerDeclineLevels*>(message.data());
-        case OrderCancel::type:
-            return *reinterpret_cast<const OrderCancel*>(message.data());
+        case OrderCancel::type: {
+            OrderCancel result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+
+            result.orderReferenceNumber = reader.readUInt64BE();
+            result.canceledShares = reader.readUInt32BE();
+            return result;
+        }
         case RegSHOShortSalePriceTest::type:
             return *reinterpret_cast<const RegSHOShortSalePriceTest*>(message.data());
         default:
@@ -538,27 +701,8 @@ int main() {
     while(reader.readMessage(message)) {
         try {
             parsedMessage = parseMessage(message);
-            // print the message type is A, instnatiate an order, print details and break
-            if(get_if<AddOrder>(&parsedMessage)) {
-                const AddOrder& addOrder = get<AddOrder>(parsedMessage);
-                // create an order from the add order message
-                Order order(
-                    addOrder.orderReferenceNumber,
-                    addOrder.header.stockLocate,
-                    addOrder.buySellIndicator,
-                    addOrder.price,
-                    addOrder.shares
-                );  
-                // order details
-
-                cout << "Order Reference Number: " << order.orderReferenceNumber() << endl;
-                cout << "Stock Locate: " << order.stockLocate() << endl;
-                cout << "Buy/Sell Indicator: " << order.buySellIndicator() << endl;
-
-                cout << "Price: " << order.price() << endl;
-                cout << "Shares: " << order.shares() << endl;
-                break;
-            }
+            // if the message order was E,C,X,D,U,F, we should update the order book accordingly
+            
         } catch (const std::exception& e) {
             cerr << "Error parsing message: " << e.what() << endl;
         }

@@ -408,6 +408,10 @@ class MessageReader {
             }
         }
 
+        // get current gzoffset
+        off_t gzoffset() const {
+            return ::gzoffset(m_file);
+        }
         // read a message from the file
         bool readMessage(Message& message) {
             // read the size of the message from the stream (first 2 bytes indicate size to read in bytes)
@@ -1045,7 +1049,7 @@ ParsedMessage parseMessage(const Message& message) {
             throw runtime_error("Unknown message type");
     }
 }
-int main() {
+int main(int argc, char* argv[]) {
     MessageReader reader("data/12302019.NASDAQ_ITCH50.gz");
     // better idea, we should iteratively read messages and grab all their headers to see how many different types there are
 
@@ -1054,16 +1058,17 @@ int main() {
     OrderBook orderBook;
     int messageCount = 0;
     unordered_map<char, int> unsupportedMessageCounts;
+    unordered_map<uint16_t, string> stockLocateToSymbol;
     int malformedMessageCount = 0;
 
     // just go through first 1000 messages of the order book for now.
-    while(orderBook.size() < 1000 && reader.readMessage(message)) {
+    while(orderBook.size() < 1000000 && reader.readMessage(message)) {
         try {
             parsedMessage = parseMessage(message);
             messageCount++;
             // list of message types we want to handle [AddOrder, AddOrderWithMPID, OrderExecuted, OrderExecutedWithPrice, OrderCancel, OrderDelete, OrderReplace]
 
-            std::visit([&orderBook, &unsupportedMessageCounts](auto&& msg) {
+            std::visit([&orderBook, &unsupportedMessageCounts, &stockLocateToSymbol](auto&& msg) {
                 using T = std::decay_t<decltype(msg)>;
                 if constexpr (std::is_same_v<T, AddOrder>) {
                     cout << "AddOrder message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
@@ -1086,6 +1091,12 @@ int main() {
                 } else if constexpr (std::is_same_v<T, OrderReplace>) {
                     cout << "OrderReplace message: OriginalOrderRef=" << msg.originalOrderReferenceNumber << ", NewOrderRef=" << msg.newOrderReferenceNumber << ", NewShares=" << msg.newShares << ", NewPrice=" << msg.newPrice << endl;
                     orderBook.apply(msg);
+                } else if constexpr (std::is_same_v<T, StockDirectory>) {
+                    // store stock symbol for later use, trimming trailing space padding
+                    string stockSymbol(msg.stock, 8);
+                    size_t lastNonSpace = stockSymbol.find_last_not_of(' ');
+                    stockSymbol = (lastNonSpace == string::npos) ? "" : stockSymbol.substr(0, lastNonSpace + 1);
+                    stockLocateToSymbol[msg.header.stockLocate] = stockSymbol;
                 } else {
                     unsupportedMessageCounts[T::type]++;
                 }
@@ -1106,4 +1117,50 @@ int main() {
         cout << "  Type '" << type << "': " << count << endl;
     }
 
+    // parse --symbol=XYZ and --depth=N independently of each other/order
+    string symbol;
+    int depth = 5; // default depth
+    for (int i = 1; i < argc; i++) {
+        string arg(argv[i]);
+        if (arg.rfind("--symbol=", 0) == 0) {
+            symbol = arg.substr(9);
+        } else if (arg.rfind("--depth=", 0) == 0) {
+            depth = stoi(arg.substr(8));
+        }
+    }
+
+    if (symbol.empty()) {
+        cerr << "Usage: " << argv[0] << " --symbol=XYZ [--depth=N]" << endl;
+        return 1;
+    }
+
+    // find stockLocate for this symbol
+    uint16_t stockLocate = 0;
+    bool found = false;
+    for (const auto& [loc, sym] : stockLocateToSymbol) {
+        if (sym == symbol) {
+            stockLocate = loc;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        cout << "Symbol " << symbol << " not found in the feed." << endl;
+        return 1;
+    }
+
+    // get top N bids and asks for this stockLocate
+    auto topLevelsOpt = orderBook.top(stockLocate, depth);
+    if (topLevelsOpt) {
+        auto [bids, asks] = *topLevelsOpt;
+        cout << "Top " << depth << " levels for symbol " << symbol << ":" << endl;
+        cout << "Bids:" << endl;
+        for (const auto& [price, quantity] : bids) {
+            cout << "  Price: " << price << ", Quantity: " << quantity << endl;
+        }
+        cout << "Asks:" << endl;
+        for (const auto& [price, quantity] : asks) {
+            cout << "  Price: " << price << ", Quantity: " << quantity << endl;
+        }
+    }
 }

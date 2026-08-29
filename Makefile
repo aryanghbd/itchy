@@ -13,7 +13,9 @@ all: $(TARGET)
 $(TARGET): $(OBJECT)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
-$(OBJECT): $(SOURCE)
+HEADERS := itch_messages.hpp byte_reader.hpp message_reader.hpp itch_parser.hpp order_book.hpp
+
+$(OBJECT): $(SOURCE) $(HEADERS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
  

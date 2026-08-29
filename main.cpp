@@ -1065,6 +1065,7 @@ int main(int argc, char* argv[]) {
     string symbol;
     int depth = 5; // default depth
     int limit = -1; // -1 means no limit, read the whole feed
+    bool verbose = false; // if true, print a line per applied message
     for (int i = 1; i < argc; i++) {
         string arg(argv[i]);
         if (arg.rfind("--symbol=", 0) == 0) {
@@ -1073,6 +1074,11 @@ int main(int argc, char* argv[]) {
             depth = stoi(arg.substr(8));
         } else if (arg.rfind("--limit=", 0) == 0) {
             limit = stoi(arg.substr(8));
+        } else if (arg.rfind("--verbose", 0) == 0) {
+            verbose = true;
+        } else {
+            cerr << "Unknown argument: " << arg << endl;
+            return 1;
         }
     }
 
@@ -1082,28 +1088,28 @@ int main(int argc, char* argv[]) {
             messageCount++;
             // list of message types we want to handle [AddOrder, AddOrderWithMPID, OrderExecuted, OrderExecutedWithPrice, OrderCancel, OrderDelete, OrderReplace]
 
-            std::visit([&orderBook, &unsupportedMessageCounts, &stockLocateToSymbol](auto&& msg) {
+            std::visit([&orderBook, &unsupportedMessageCounts, &stockLocateToSymbol, verbose](auto&& msg) {
                 using T = std::decay_t<decltype(msg)>;
                 if constexpr (std::is_same_v<T, AddOrder>) {
-                    cout << "AddOrder message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
+                    if (verbose) cout << "AddOrder message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, AddOrderWithMPID>) {
-                    cout << "AddOrderWithMPID message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
+                    if (verbose) cout << "AddOrderWithMPID message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderExecuted>) {
-                    cout << "OrderExecuted message: OrderRef=" << msg.orderReferenceNumber << ", ExecutedShares=" << msg.executedShares << endl;
+                    if (verbose) cout << "OrderExecuted message: OrderRef=" << msg.orderReferenceNumber << ", ExecutedShares=" << msg.executedShares << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderExecutedWithPrice>) {
-                    cout << "OrderExecutedWithPrice message: OrderRef=" << msg.orderReferenceNumber << ", ExecutedShares=" << msg.executedShares << ", Price=" << msg.price << endl;
+                    if (verbose) cout << "OrderExecutedWithPrice message: OrderRef=" << msg.orderReferenceNumber << ", ExecutedShares=" << msg.executedShares << ", Price=" << msg.price << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderCancel>) {
-                    cout << "OrderCancel message: OrderRef=" << msg.orderReferenceNumber << ", CanceledShares=" << msg.canceledShares << endl;
+                    if (verbose) cout << "OrderCancel message: OrderRef=" << msg.orderReferenceNumber << ", CanceledShares=" << msg.canceledShares << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderDelete>) {
-                    cout << "OrderDelete message: OrderRef=" << msg.orderReferenceNumber << endl;
+                    if (verbose) cout << "OrderDelete message: OrderRef=" << msg.orderReferenceNumber << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, OrderReplace>) {
-                    cout << "OrderReplace message: OriginalOrderRef=" << msg.originalOrderReferenceNumber << ", NewOrderRef=" << msg.newOrderReferenceNumber << ", NewShares=" << msg.newShares << ", NewPrice=" << msg.newPrice << endl;
+                    if (verbose) cout << "OrderReplace message: OriginalOrderRef=" << msg.originalOrderReferenceNumber << ", NewOrderRef=" << msg.newOrderReferenceNumber << ", NewShares=" << msg.newShares << ", NewPrice=" << msg.newPrice << endl;
                     orderBook.apply(msg);
                 } else if constexpr (std::is_same_v<T, StockDirectory>) {
                     // store stock symbol for later use, trimming trailing space padding
@@ -1132,7 +1138,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (symbol.empty()) {
-        cerr << "Usage: " << argv[0] << " --symbol=XYZ [--depth=N] [--limit=N]" << endl;
+        cerr << "Usage: " << argv[0] << " --symbol=XYZ [--depth=N] [--limit=N] [--verbose]" << endl;
         return 1;
     }
 

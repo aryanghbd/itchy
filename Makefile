@@ -1,5 +1,5 @@
 CXX ?= c++
-CXXFLAGS ?= -std=c++20 -Wall -Wextra -Wpedantic
+CXXFLAGS ?= -std=c++20 -Wall -Wextra -Wpedantic -O2
 
 TARGET := build/itch-lob
 SOURCE := main.cpp

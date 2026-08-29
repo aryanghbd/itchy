@@ -561,15 +561,23 @@ class OrderBook {
             if (order.buySellIndicator() == 'B') {
                 auto levelIt = book.bids.find(order.price());
                 if (levelIt != book.bids.end()) {
+                    if(verifyPriceLevel(levelIt->second) == false) {
+                        throw runtime_error("Price level total quantity does not match sum of order shares");
+                    }
                     levelIt->second.totalQuantity -= amount;
                 }
             } else if (order.buySellIndicator() == 'S') {
                 auto levelIt = book.asks.find(order.price());
                 if (levelIt != book.asks.end()) {
+                    if(verifyPriceLevel(levelIt->second) == false) {
+                        throw runtime_error("Price level total quantity does not match sum of order shares");
+                    }
                     levelIt->second.totalQuantity -= amount;
                 }
             }
         }
+        
+
 
     public:
         int size() const {
@@ -579,6 +587,18 @@ class OrderBook {
             return m_books;
         }
 
+        // invariant to verify that total quantity at price level = sum of all shares of orders at said
+        bool verifyPriceLevel(const PriceLevel& level) const {
+            uint32_t total = 0;
+            for (uint64_t orderId : level.orderIds) {
+                auto it = m_orderIndex.find(orderId);
+                if (it != m_orderIndex.end()) {
+                    total += it->second.shares();
+                }
+            }
+            return total == level.totalQuantity;
+        }
+        
         void addOrder(const Order& order) {
             Order newOrder = order;
             Book& book = m_books[newOrder.stockLocate()];
@@ -588,18 +608,24 @@ class OrderBook {
                 level.totalQuantity += newOrder.shares();
                 level.orderIds.push_back(newOrder.orderReferenceNumber());
                 newOrder.setListIterator(std::prev(level.orderIds.end()));
+                m_orderIndex.insert_or_assign(newOrder.orderReferenceNumber(), newOrder);
+                if(verifyPriceLevel(level) == false) {
+                    throw runtime_error("Price level total quantity does not match sum of order shares");
+                }
             }
             else if (newOrder.buySellIndicator() == 'S') {
                 PriceLevel& level = book.asks[newOrder.price()];
                 level.totalQuantity += newOrder.shares();
                 level.orderIds.push_back(newOrder.orderReferenceNumber());
                 newOrder.setListIterator(std::prev(level.orderIds.end()));
+                m_orderIndex.insert_or_assign(newOrder.orderReferenceNumber(), newOrder);
+                if(verifyPriceLevel(level) == false) {
+                    throw runtime_error("Price level total quantity does not match sum of order shares");
+                }
             }
             else {
                 throw runtime_error("Invalid buy/sell indicator");
             }
-
-            m_orderIndex.insert_or_assign(newOrder.orderReferenceNumber(), newOrder);
         }
 
         void removeOrder(uint64_t orderReferenceNumber) {
@@ -615,6 +641,9 @@ class OrderBook {
                 if (order.buySellIndicator() == 'B') {
                     auto levelIt = book.bids.find(order.price());
                     if (levelIt != book.bids.end()) {
+                        if(verifyPriceLevel(levelIt->second) == false) {
+                            throw runtime_error("Price level total quantity does not match sum of order shares");
+                        }
                         levelIt->second.orderIds.erase(order.listIterator());
                         levelIt->second.totalQuantity -= order.shares();
                         if (levelIt->second.orderIds.empty()) {
@@ -624,6 +653,9 @@ class OrderBook {
                 } else if (order.buySellIndicator() == 'S') {
                     auto levelIt = book.asks.find(order.price());
                     if (levelIt != book.asks.end()) {
+                        if(verifyPriceLevel(levelIt->second) == false) {
+                            throw runtime_error("Price level total quantity does not match sum of order shares");
+                        }
                         levelIt->second.orderIds.erase(order.listIterator());
                         levelIt->second.totalQuantity -= order.shares();
                         if (levelIt->second.orderIds.empty()) {
@@ -764,8 +796,15 @@ ParsedMessage parseMessage(const Message& message) {
     uint8_t messageType = reader.readUInt8();
 
     switch (messageType) {
-        case SystemEvent::type:
-            return *reinterpret_cast<const SystemEvent*>(message.data());
+        case SystemEvent::type: {
+            SystemEvent result{};
+            result.header.messageType = messageType;
+            result.header.stockLocate = reader.readUInt16BE();
+            result.header.trackingNumber = reader.readUInt16BE();
+            result.header.timestamp = reader.readUInt48BE();
+            result.eventCode = static_cast<char>(reader.readUInt8());
+            return result;
+        }
         case AddOrder::type: {
             AddOrder result{};
 
@@ -1014,7 +1053,7 @@ int main() {
     ParsedMessage parsedMessage;
     OrderBook orderBook;
     int messageCount = 0;
-    int unknownMessageCount = 0;
+    unordered_map<char, int> unsupportedMessageCounts;
     int malformedMessageCount = 0;
 
     // just go through first 1000 messages of the order book for now.
@@ -1024,7 +1063,7 @@ int main() {
             messageCount++;
             // list of message types we want to handle [AddOrder, AddOrderWithMPID, OrderExecuted, OrderExecutedWithPrice, OrderCancel, OrderDelete, OrderReplace]
 
-            std::visit([&orderBook, &unknownMessageCount](auto&& msg) {
+            std::visit([&orderBook, &unsupportedMessageCounts](auto&& msg) {
                 using T = std::decay_t<decltype(msg)>;
                 if constexpr (std::is_same_v<T, AddOrder>) {
                     cout << "AddOrder message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;
@@ -1048,7 +1087,7 @@ int main() {
                     cout << "OrderReplace message: OriginalOrderRef=" << msg.originalOrderReferenceNumber << ", NewOrderRef=" << msg.newOrderReferenceNumber << ", NewShares=" << msg.newShares << ", NewPrice=" << msg.newPrice << endl;
                     orderBook.apply(msg);
                 } else {
-                    unknownMessageCount++;
+                    unsupportedMessageCounts[T::type]++;
                 }
             }, parsedMessage);
             
@@ -1060,7 +1099,11 @@ int main() {
 
     cout << "The order book has " << orderBook.size() << " orders after processing the ITCH feed." << endl;
     cout << "Processed " << messageCount << " messages." << endl;
-    cout << "Encountered " << unknownMessageCount << " unknown messages." << endl;
     cout << "Encountered " << malformedMessageCount << " malformed messages." << endl;
+
+    cout << "Unsupported message counts by type:" << endl;
+    for (const auto& [type, count] : unsupportedMessageCounts) {
+        cout << "  Type '" << type << "': " << count << endl;
+    }
 
 }

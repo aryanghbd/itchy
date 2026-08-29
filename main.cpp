@@ -1061,8 +1061,14 @@ int main(int argc, char* argv[]) {
     unordered_map<uint16_t, string> stockLocateToSymbol;
     int malformedMessageCount = 0;
 
-    // just go through first 1000 messages of the order book for now.
-    while(orderBook.size() < 1000000 && reader.readMessage(message)) {
+    // extra arg at the end, 3rd one, --limit, which will limit the number of messages to read from the feed. If not provided, read all messages.
+    int limit = -1;
+
+    if (argc > 3 && string(argv[3]) == "--limit") {
+        limit = stoi(argv[4]);
+    }
+
+    while((limit == -1 || messageCount < limit) && reader.readMessage(message)) {
         try {
             parsedMessage = parseMessage(message);
             messageCount++;

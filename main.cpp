@@ -7,7 +7,7 @@ using namespace std;
 #include <map>
 #include <stdexcept>
 #include <variant>
-
+#include <list>
 // methods to read to big endian
 
 #include <span>
@@ -455,6 +455,7 @@ private:
     char m_buySellIndicator;
     uint32_t m_price; // big endian with 4 implied decimal places
     uint32_t m_shares; 
+    std::list<uint64_t>::iterator m_listIterator; // position of this order's ID within its PriceLevel's FIFO list, for O(1) removal
 
 public:
     Order(
@@ -476,8 +477,11 @@ public:
     char buySellIndicator() const { return m_buySellIndicator; }
     uint32_t price() const { return m_price; }
     uint32_t shares() const { return m_shares; }
+    std::list<uint64_t>::iterator listIterator() const { return m_listIterator; }
 
     // setters
+    void setListIterator(std::list<uint64_t>::iterator it) { m_listIterator = it; }
+
     void reduceShares(uint32_t amount) {
         if (amount > m_shares) {
             throw runtime_error("Cannot reduce shares below zero");
@@ -486,25 +490,107 @@ public:
     }
 };
 
+struct PriceLevel {
+    uint32_t totalQuantity = 0;
+    std::list<uint64_t> orderIds; // list of order reference numbers at this price level, FIFO order
+};
+
+struct Book {
+    // each stock is a book, has bids and asks.
+    map<uint32_t, PriceLevel, std::greater<>> bids; // sorted descending: best bid first
+    map<uint32_t, PriceLevel> asks; // sorted ascending: best ask first
+};
+
 class OrderBook {
-    // collection of orders, keyed by order reference number
     private:
-        unordered_map<uint64_t, Order> m_orders;
+        unordered_map<uint64_t, Order> m_orderIndex; // orderId -> Order, O(1) lookup
+        unordered_map<uint16_t, Book> m_books; // stockLocate -> Book
+
+        // find the price level an order sits in, and subtract 'amount' from its cached total.
+        // does not touch the FIFO list; used for partial fills/cancels where the order stays resting.
+        void reduceLevelQuantity(const Order& order, uint32_t amount) {
+            auto bookIt = m_books.find(order.stockLocate());
+            if (bookIt == m_books.end()) {
+                return;
+            }
+            Book& book = bookIt->second;
+            if (order.buySellIndicator() == 'B') {
+                auto levelIt = book.bids.find(order.price());
+                if (levelIt != book.bids.end()) {
+                    levelIt->second.totalQuantity -= amount;
+                }
+            } else if (order.buySellIndicator() == 'S') {
+                auto levelIt = book.asks.find(order.price());
+                if (levelIt != book.asks.end()) {
+                    levelIt->second.totalQuantity -= amount;
+                }
+            }
+        }
+
     public:
         int size() const {
-            return m_orders.size();
+            return m_orderIndex.size();
         }
         void addOrder(const Order& order) {
-            m_orders.insert_or_assign(order.orderReferenceNumber(), order);
+            Order newOrder = order;
+            Book& book = m_books[newOrder.stockLocate()];
+
+            if (newOrder.buySellIndicator() == 'B') {
+                PriceLevel& level = book.bids[newOrder.price()];
+                level.totalQuantity += newOrder.shares();
+                level.orderIds.push_back(newOrder.orderReferenceNumber());
+                newOrder.setListIterator(std::prev(level.orderIds.end()));
+            }
+            else if (newOrder.buySellIndicator() == 'S') {
+                PriceLevel& level = book.asks[newOrder.price()];
+                level.totalQuantity += newOrder.shares();
+                level.orderIds.push_back(newOrder.orderReferenceNumber());
+                newOrder.setListIterator(std::prev(level.orderIds.end()));
+            }
+            else {
+                throw runtime_error("Invalid buy/sell indicator");
+            }
+
+            m_orderIndex.insert_or_assign(newOrder.orderReferenceNumber(), newOrder);
         }
 
         void removeOrder(uint64_t orderReferenceNumber) {
-            m_orders.erase(orderReferenceNumber);
+            auto orderIt = m_orderIndex.find(orderReferenceNumber);
+            if (orderIt == m_orderIndex.end()) {
+                return;
+            }
+            Order& order = orderIt->second;
+
+            auto bookIt = m_books.find(order.stockLocate());
+            if (bookIt != m_books.end()) {
+                Book& book = bookIt->second;
+                if (order.buySellIndicator() == 'B') {
+                    auto levelIt = book.bids.find(order.price());
+                    if (levelIt != book.bids.end()) {
+                        levelIt->second.orderIds.erase(order.listIterator());
+                        levelIt->second.totalQuantity -= order.shares();
+                        if (levelIt->second.orderIds.empty()) {
+                            book.bids.erase(levelIt);
+                        }
+                    }
+                } else if (order.buySellIndicator() == 'S') {
+                    auto levelIt = book.asks.find(order.price());
+                    if (levelIt != book.asks.end()) {
+                        levelIt->second.orderIds.erase(order.listIterator());
+                        levelIt->second.totalQuantity -= order.shares();
+                        if (levelIt->second.orderIds.empty()) {
+                            book.asks.erase(levelIt);
+                        }
+                    }
+                }
+            }
+
+            m_orderIndex.erase(orderIt);
         }
 
         Order* getOrder(uint64_t orderReferenceNumber) {
-            auto it = m_orders.find(orderReferenceNumber);
-            if (it != m_orders.end()) {
+            auto it = m_orderIndex.find(orderReferenceNumber);
+            if (it != m_orderIndex.end()) {
                 return &it->second;
             }
             return nullptr;
@@ -536,7 +622,7 @@ class OrderBook {
             // NOTE: per NASDAQ spec if order is executed completely (i.e reduces shares to 0) it is deleted without an explicit deletion event following
             Order* order = getOrder(message.orderReferenceNumber);
             if (order) {
-                // reduce shares 
+                reduceLevelQuantity(*order, message.executedShares);
                 order->reduceShares(message.executedShares);
                 if (order->shares() == 0) {
                     removeOrder(message.orderReferenceNumber);
@@ -547,10 +633,9 @@ class OrderBook {
             }
         }
         void apply(const OrderExecutedWithPrice& message) {
-            // reduce the shares of the order by the executed shares
             Order* order = getOrder(message.orderReferenceNumber);
             if (order) {
-                // reduce shares 
+                reduceLevelQuantity(*order, message.executedShares);
                 order->reduceShares(message.executedShares);
                 if (order->shares() == 0) {
                     removeOrder(message.orderReferenceNumber);
@@ -564,7 +649,11 @@ class OrderBook {
             // reduce remaining shares but don't delete the order, since it may be partially filled and still exist in the book
             Order* order = getOrder(message.orderReferenceNumber);
             if (order) {
+                reduceLevelQuantity(*order, message.canceledShares);
                 order->reduceShares(message.canceledShares);
+                if (order->shares() == 0) {
+                    removeOrder(message.orderReferenceNumber);
+                }
             }
             else {
                 throw runtime_error("Order not found for cancellation");

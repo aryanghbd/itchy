@@ -1061,11 +1061,19 @@ int main(int argc, char* argv[]) {
     unordered_map<uint16_t, string> stockLocateToSymbol;
     int malformedMessageCount = 0;
 
-    // extra arg at the end, 3rd one, --limit, which will limit the number of messages to read from the feed. If not provided, read all messages.
-    int limit = -1;
-
-    if (argc > 3 && string(argv[3]) == "--limit") {
-        limit = stoi(argv[4]);
+    // parse --symbol=XYZ, --depth=N, and --limit=N independently of each other/order
+    string symbol;
+    int depth = 5; // default depth
+    int limit = -1; // -1 means no limit, read the whole feed
+    for (int i = 1; i < argc; i++) {
+        string arg(argv[i]);
+        if (arg.rfind("--symbol=", 0) == 0) {
+            symbol = arg.substr(9);
+        } else if (arg.rfind("--depth=", 0) == 0) {
+            depth = stoi(arg.substr(8));
+        } else if (arg.rfind("--limit=", 0) == 0) {
+            limit = stoi(arg.substr(8));
+        }
     }
 
     while((limit == -1 || messageCount < limit) && reader.readMessage(message)) {
@@ -1123,20 +1131,8 @@ int main(int argc, char* argv[]) {
         cout << "  Type '" << type << "': " << count << endl;
     }
 
-    // parse --symbol=XYZ and --depth=N independently of each other/order
-    string symbol;
-    int depth = 5; // default depth
-    for (int i = 1; i < argc; i++) {
-        string arg(argv[i]);
-        if (arg.rfind("--symbol=", 0) == 0) {
-            symbol = arg.substr(9);
-        } else if (arg.rfind("--depth=", 0) == 0) {
-            depth = stoi(arg.substr(8));
-        }
-    }
-
     if (symbol.empty()) {
-        cerr << "Usage: " << argv[0] << " --symbol=XYZ [--depth=N]" << endl;
+        cerr << "Usage: " << argv[0] << " --symbol=XYZ [--depth=N] [--limit=N]" << endl;
         return 1;
     }
 

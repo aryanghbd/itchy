@@ -499,12 +499,30 @@ struct Book {
     // each stock is a book, has bids and asks.
     map<uint32_t, PriceLevel, std::greater<>> bids; // sorted descending: best bid first
     map<uint32_t, PriceLevel> asks; // sorted ascending: best ask first
+
+    // best bid and best ask,
+    // 'best' means the highest bid, or price someone is willing to buy
+    // 'best' ask means lowest price someone is willin to sell at
+
+    optional<uint32_t> bestBid() const {
+        if (bids.empty()) {
+            return nullopt;
+        }
+        return bids.begin()->first;
+    }
+
+    optional<uint32_t> bestAsk() const {
+        if (asks.empty()) {
+            return nullopt;
+        }
+        return asks.begin()->first;
+    }
 };
 
 class OrderBook {
     private:
-        unordered_map<uint64_t, Order> m_orderIndex; // orderId -> Order, O(1) lookup
-        unordered_map<uint16_t, Book> m_books; // stockLocate -> Book
+        unordered_map<uint64_t, Order> m_orderIndex;
+        unordered_map<uint16_t, Book> m_books;
 
         // find the price level an order sits in, and subtract 'amount' from its cached total.
         // does not touch the FIFO list; used for partial fills/cancels where the order stays resting.

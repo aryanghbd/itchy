@@ -532,10 +532,15 @@ class OrderBook {
         }
         void apply(const OrderExecuted& message) {
             // reduce the shares of the order by the executed shares
+
+            // NOTE: per NASDAQ spec if order is executed completely (i.e reduces shares to 0) it is deleted without an explicit deletion event following
             Order* order = getOrder(message.orderReferenceNumber);
             if (order) {
                 // reduce shares 
                 order->reduceShares(message.executedShares);
+                if (order->shares() == 0) {
+                    removeOrder(message.orderReferenceNumber);
+                }
             }
             else {
                 throw runtime_error("Order not found for execution");
@@ -547,6 +552,9 @@ class OrderBook {
             if (order) {
                 // reduce shares 
                 order->reduceShares(message.executedShares);
+                if (order->shares() == 0) {
+                    removeOrder(message.orderReferenceNumber);
+                }
             }
             else {
                 throw runtime_error("Order not found for execution");
@@ -662,7 +670,7 @@ ParsedMessage parseMessage(const Message& message) {
             reader.readChars(result.mpid, 4);
             return result;
         }
-        case StockTradingAction::type:
+        case StockTradingAction::type: {
             StockTradingAction result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -673,8 +681,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.reserved = static_cast<char>(reader.readUInt8());
             reader.readChars(result.reason, 4);
             return result;
+        }
 
-        case NetOrderImbalanceIndicator::type:
+        case NetOrderImbalanceIndicator::type: {
             NetOrderImbalanceIndicator result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -689,8 +698,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.crossType = static_cast<char>(reader.readUInt8());
             result.priceVariation = static_cast<char>(reader.readUInt8());
             return result;
+        }
 
-        case LULDAuctionCollar::type:
+        case LULDAuctionCollar::type: {
             LULDAuctionCollar result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -702,8 +712,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.lowerAuctionCollarPrice = reader.readUInt32BE();
             result.auctionExtensions = reader.readUInt32BE();
             return result;
+        }
 
-        case IPOQuotingPeriodUpdate::type:
+        case IPOQuotingPeriodUpdate::type: {
             IPOQuotingPeriodUpdate result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -714,8 +725,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.releaseQualifier = static_cast<char>(reader.readUInt8());
             result.ipoPrice = reader.readUInt32BE();
             return result;
+        }
 
-        case MarketParticipantPosition::type:
+        case MarketParticipantPosition::type: {
             MarketParticipantPosition result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -727,8 +739,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.marketMakerMode = static_cast<char>(reader.readUInt8());
             result.marketParticipantState = static_cast<char>(reader.readUInt8());
             return result;
+        }
 
-        case TradeMessageNonCross::type:
+        case TradeMessageNonCross::type: {
             TradeMessageNonCross result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -741,8 +754,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.price = reader.readUInt32BE();
             result.matchNumber = reader.readUInt64BE();
             return result;
+        }
 
-        case CrossTrade::type:
+        case CrossTrade::type: {
             CrossTrade result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -754,8 +768,9 @@ ParsedMessage parseMessage(const Message& message) {
             result.matchNumber = reader.readUInt64BE();
             result.crossType = static_cast<char>(reader.readUInt8());
             return result;
+        }
 
-        case StockDirectory::type:
+        case StockDirectory::type: {
             StockDirectory result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -776,6 +791,7 @@ ParsedMessage parseMessage(const Message& message) {
             result.etpLeverageFactor = reader.readUInt32BE();
             result.inverseIndicator = static_cast<char>(reader.readUInt8());
             return result;
+        }
 
         case OrderReplace::type: {
             OrderReplace result{};
@@ -790,7 +806,7 @@ ParsedMessage parseMessage(const Message& message) {
             result.newPrice = reader.readUInt32BE();
             return result;
         }
-        case MarketWideCircuitBreakerDeclineLevels::type:
+        case MarketWideCircuitBreakerDeclineLevels::type: {
             MarketWideCircuitBreakerDeclineLevels result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -800,6 +816,7 @@ ParsedMessage parseMessage(const Message& message) {
             result.level2 = reader.readUInt64BE();
             result.level3 = reader.readUInt64BE();
             return result;
+        }
 
         case OrderCancel::type: {
             OrderCancel result{};
@@ -812,7 +829,7 @@ ParsedMessage parseMessage(const Message& message) {
             return result;
         }
 
-        case RegSHOShortSalePriceTest::type:
+        case RegSHOShortSalePriceTest::type: {
             RegSHOShortSalePriceTest result{};
             result.header.messageType = messageType;
             result.header.stockLocate = reader.readUInt16BE();
@@ -821,6 +838,7 @@ ParsedMessage parseMessage(const Message& message) {
             reader.readChars(result.stock, 8);
             result.regSHOAction = static_cast<char>(reader.readUInt8());
             return result;
+        }
 
         default:
             throw runtime_error("Unknown message type");
@@ -843,7 +861,7 @@ int main() {
             messageCount++;
             // list of message types we want to handle [AddOrder, AddOrderWithMPID, OrderExecuted, OrderExecutedWithPrice, OrderCancel, OrderDelete, OrderReplace]
 
-            std::visit([&orderBook](auto&& msg) {
+            std::visit([&orderBook, &unknownMessageCount](auto&& msg) {
                 using T = std::decay_t<decltype(msg)>;
                 if constexpr (std::is_same_v<T, AddOrder>) {
                     cout << "AddOrder message: OrderRef=" << msg.orderReferenceNumber << ", Shares=" << msg.shares << ", Price=" << msg.price << endl;

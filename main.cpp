@@ -8,6 +8,7 @@ using namespace std;
 #include <stdexcept>
 #include <variant>
 #include <list>
+#include <optional> 
 // methods to read to big endian
 
 #include <span>
@@ -517,6 +518,31 @@ struct Book {
         }
         return asks.begin()->first;
     }
+
+    pair<vector<pair<uint32_t, uint32_t>>, vector<pair<uint32_t, uint32_t>>> top(int n) const {
+        // return the top N price levels for both bids and asks
+
+        vector<pair<uint32_t, uint32_t>> bidResult;
+        vector<pair<uint32_t, uint32_t>> askResult;
+        auto bidIt = bids.begin();
+        auto askIt = asks.begin();
+        for (int i = 0; i < n; ++i) {
+            PriceLevel bidLevel;
+            PriceLevel askLevel;
+            if (bidIt != bids.end()) {
+                bidLevel = bidIt->second;
+                // push here
+                bidResult.push_back({bidIt->first, bidLevel.totalQuantity});
+                ++bidIt;
+            }
+            if (askIt != asks.end()) {
+                askLevel = askIt->second;
+                askResult.push_back({askIt->first, askLevel.totalQuantity});
+                ++askIt;
+            }
+        }
+        return {bidResult, askResult};
+    }
 };
 
 class OrderBook {
@@ -549,6 +575,10 @@ class OrderBook {
         int size() const {
             return m_orderIndex.size();
         }
+        const unordered_map<uint16_t, Book>& books() const {
+            return m_books;
+        }
+
         void addOrder(const Order& order) {
             Order newOrder = order;
             Book& book = m_books[newOrder.stockLocate()];
@@ -700,6 +730,31 @@ class OrderBook {
                 message.newShares
             );
             addOrder(newOrder);
+        }
+
+        // locate book from stocklocate and return its best bid and ask
+        optional<uint32_t> bestBid(uint16_t stockLocate) const {
+            auto BookIt = m_books.find(stockLocate);
+            if (BookIt != m_books.end()) {
+                return BookIt->second.bestBid();
+            }
+            return nullopt;
+        }
+
+        optional<uint32_t> bestAsk(uint16_t stockLocate) const {
+            auto BookIt = m_books.find(stockLocate);
+            if (BookIt != m_books.end()) {
+                return BookIt->second.bestAsk();
+            }
+            return nullopt;
+        }
+
+        optional<pair<vector<pair<uint32_t, uint32_t>>, vector<pair<uint32_t, uint32_t>>>> top(uint16_t stockLocate, int n) const {
+            auto BookIt = m_books.find(stockLocate);
+            if (BookIt != m_books.end()) {
+                return BookIt->second.top(n);
+            }
+            return nullopt;
         }
 };
 using ParsedMessage = std::variant<SystemEvent, AddOrder, OrderExecutedWithPrice, OrderDelete, OrderExecuted, AddOrderWithMPID, StockTradingAction, NetOrderImbalanceIndicator, LULDAuctionCollar, IPOQuotingPeriodUpdate, MarketParticipantPosition, TradeMessageNonCross, CrossTrade, StockDirectory, OrderReplace, MarketWideCircuitBreakerDeclineLevels, OrderCancel, RegSHOShortSalePriceTest>;
@@ -962,7 +1017,8 @@ int main() {
     int unknownMessageCount = 0;
     int malformedMessageCount = 0;
 
-    while(reader.readMessage(message)) {
+    // just go through first 1000 messages of the order book for now.
+    while(orderBook.size() < 1000 && reader.readMessage(message)) {
         try {
             parsedMessage = parseMessage(message);
             messageCount++;
@@ -1006,4 +1062,5 @@ int main() {
     cout << "Processed " << messageCount << " messages." << endl;
     cout << "Encountered " << unknownMessageCount << " unknown messages." << endl;
     cout << "Encountered " << malformedMessageCount << " malformed messages." << endl;
+
 }

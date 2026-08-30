@@ -2,6 +2,14 @@
 
 ITCH 5.0 decoder and L3 order book in C++20. Why'd I build it? Because I was bored. The matching engine shall be known as `scratchy` (get it?).
 
+## the short version
+
+`itchy` is a C++20 NASDAQ TotalView-ITCH 5.0 replay engine. It streams a gzipped binary feed, performs bounds-checked big-endian decoding into typed `std::variant` messages, and applies add, execute, cancel, delete, and replace events to reconstruct full-depth L3 order books for every symbol in the feed.
+
+The book is built around the hot path: orders live in a pool-backed `std::pmr::unordered_map` for expected O(1) lookup, while intrusive previous/next pointers preserve FIFO priority without a second container allocation. Ordered bid/ask maps provide O(log P) price-level access, O(1) order linking and unlinking, O(1) best bid/ask access, and O(N) top-of-book traversal.
+
+On a 268,744,780-message replay, the current implementation processed 2.54 million messages/second in 106 seconds—including gzip decompression, decoding, and book updates. That is 5.9× faster than the initial build and 1.9× faster than the plain `-O2` baseline. Build with `make`, replay with `./build/itch-lob <feed.gz> --symbol=AAPL`, and see [PERFORMANCE.md](PERFORMANCE.md) for the tuning log and failed experiments.
+
 ## what it does
 
 - streams a gzipped NASDAQ TotalView-ITCH 5.0 feed;

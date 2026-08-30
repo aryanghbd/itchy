@@ -13,18 +13,8 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    MessageReader reader("data/12302019.NASDAQ_ITCH50.gz");
-    // better idea, we should iteratively read messages and grab all their headers to see how many different types there are
-
-    Message message;
-    ParsedMessage parsedMessage;
-    OrderBook orderBook;
-    int messageCount = 0;
-    unordered_map<char, int> unsupportedMessageCounts;
-    unordered_map<uint16_t, string> stockLocateToSymbol;
-    int malformedMessageCount = 0;
-
-    // parse --symbol=XYZ, --depth=N, and --limit=N independently of each other/order
+    // Parse the feed path and options independently of their order.
+    string feedPath;
     string symbol;
     int depth = 5; // default depth
     int limit = -1; // -1 means no limit, read the whole feed
@@ -39,11 +29,28 @@ int main(int argc, char* argv[]) {
             limit = stoi(arg.substr(8));
         } else if (arg.rfind("--verbose", 0) == 0) {
             verbose = true;
+        } else if (!arg.empty() && arg[0] != '-' && feedPath.empty()) {
+            feedPath = arg;
         } else {
             cerr << "Unknown argument: " << arg << endl;
             return 1;
         }
     }
+
+    if (feedPath.empty() || symbol.empty()) {
+        cerr << "Usage: " << argv[0]
+             << " <feed.gz> --symbol=XYZ [--depth=N] [--limit=N] [--verbose]" << endl;
+        return 1;
+    }
+
+    MessageReader reader(feedPath.c_str());
+    Message message;
+    ParsedMessage parsedMessage;
+    OrderBook orderBook;
+    int messageCount = 0;
+    unordered_map<char, int> unsupportedMessageCounts;
+    unordered_map<uint16_t, string> stockLocateToSymbol;
+    int malformedMessageCount = 0;
 
     while((limit == -1 || messageCount < limit) && reader.readMessage(message)) {
         try {
@@ -100,11 +107,6 @@ int main(int argc, char* argv[]) {
     cout << "Unsupported message counts by type:" << endl;
     for (const auto& [type, count] : unsupportedMessageCounts) {
         cout << "  Type '" << type << "': " << count << endl;
-    }
-
-    if (symbol.empty()) {
-        cerr << "Usage: " << argv[0] << " --symbol=XYZ [--depth=N] [--limit=N] [--verbose]" << endl;
-        return 1;
     }
 
     // find stockLocate for this symbol

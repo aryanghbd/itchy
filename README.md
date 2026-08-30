@@ -138,7 +138,7 @@ Ok so now that we know what a message looks like, what are the other types of me
 The common 11-byte header is omitted below. The field list follows the official [Nasdaq TotalView-ITCH 5.0 specification](https://classic.nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification.pdf).
 
 | Type | Message | Fields after the common header |
-| --- | --- | --- | :---: |
+| --- | --- | --- |
 | `S` | System Event | Event code |
 | `R` | Stock Directory | Stock, market category, financial status, round-lot size/rules, issue classification/subtype, authenticity, short-sale threshold, IPO flag, LULD tier, ETP attributes |
 | `H` | Stock Trading Action | Stock, trading state, reserved byte, reason |
@@ -157,7 +157,7 @@ The common 11-byte header is omitted below. The field list follows the official 
 | `U` | Order Replace | Original/new order references, new shares, new price |
 | `P` | Non-Cross Trade | Order reference, side, shares, stock, price, match number | 
 | `Q` | Cross Trade | Shares, stock, cross price, match number, cross type | 
-| `B` | Broken Trade | Match number | No |
+| `B` | Broken Trade | Match number |
 | `I` | Net Order Imbalance Indicator | Paired/imbalance shares, direction, stock, far/near/current-reference prices, cross type, price-variation indicator | 
 | `N` | Retail Price Improvement Indicator | Stock, retail-interest indicator |
 
